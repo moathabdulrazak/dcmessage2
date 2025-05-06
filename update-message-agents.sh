@@ -1,4 +1,19 @@
-// Enhanced message-agent.js with proper message isolation
+#!/bin/bash
+# update-message-agents-sqlite.sh - Updates message agents to use direct SQLite access
+
+echo "Updating message agents with direct SQLite database access..."
+
+# Define users and their respective ports
+USERS=("debtconnects" "georgedc")
+PORTS=(3001 3002)
+API_SERVER="http://localhost:3000"
+
+# Create temporary directory for the new agent code
+mkdir -p /tmp/agent-update
+
+# Write the new message agent code using your working SQLite approach
+cat > /tmp/agent-update/message-agent.js << 'EOF'
+// Enhanced message-agent.js with direct SQLite database access
 const express = require('express');
 const { exec } = require('child_process');
 const { promisify } = require('util');
@@ -37,6 +52,9 @@ switch(username) {
     userId = 'unknown';
     phoneNumber = 'unknown';
 }
+
+// Store last processed message timestamp to avoid duplicates
+let lastProcessedTime = new Date();
 
 // Simple health check endpoint
 app.get('/health', (req, res) => {
@@ -144,123 +162,72 @@ app.post('/send', async (req, res) => {
   }
 });
 
-// Keep track of processed message IDs to avoid duplicates
-let processedMessageIds = new Set();
-
-// Load processed message IDs from file
-async function loadProcessedIds() {
-  try {
-    const idFilePath = path.join(os.homedir(), '.processed-message-ids.json');
-    const content = await fs.readFile(idFilePath, 'utf8');
-    const ids = JSON.parse(content);
-    processedMessageIds = new Set(ids);
-    console.log(`Loaded ${processedMessageIds.size} processed message IDs`);
-  } catch (err) {
-    console.log("Starting with empty processed message IDs");
-    processedMessageIds = new Set();
-  }
-}
-
-// Save processed message IDs to file
-async function saveProcessedIds() {
-  try {
-    const idFilePath = path.join(os.homedir(), '.processed-message-ids.json');
-    const idsArray = Array.from(processedMessageIds);
-    await fs.writeFile(idFilePath, JSON.stringify(idsArray));
-    console.log(`Saved ${idsArray.length} processed message IDs`);
-  } catch (err) {
-    console.error("Error saving processed message IDs:", err);
-  }
-}
-
-// Function to check for new messages - COMPLETELY REWRITTEN VERSION
+// Function to check for new messages using direct SQLite approach that works
 async function checkForNewMessages() {
   try {
-    console.log("Checking for new messages...");
+    console.log("Checking for new messages via SQLite...");
     
-    // Load processed IDs at the start
-    await loadProcessedIds();
+    // Use the exact working SQLite command you provided
+    const dbPath = `${os.homedir()}/Library/Messages/chat.db`;
+    const sqlCommand = `sqlite3 "${dbPath}" "
+      SELECT 
+        datetime(message.date/1000000000 + strftime('%s', '2001-01-01'), 'unixepoch', 'localtime') as date_str,
+        handle.id as sender,
+        message.text as message_text
+      FROM 
+        message 
+        LEFT JOIN handle ON message.handle_id = handle.ROWID
+      ORDER BY 
+        message.date DESC 
+      LIMIT 20;
+    "`;
     
-    // Direct sqlite3 shell command to get individual messages correctly
-    const dbPath = path.join(os.homedir(), '/Library/Messages/chat.db');
-    
-    // Use a shell script to run the SQLite query with proper escaping
-    // This retrieves ONE MESSAGE AT A TIME, separately, with its own fields
-    const shellScript = `
-      sqlite3 -separator '¶' "${dbPath}" "
-        SELECT 
-          message.ROWID,
-          datetime(message.date/1000000000 + strftime('%s', '2001-01-01'), 'unixepoch', 'localtime'),
-          handle.id,
-          message.text,
-          message.is_from_me
-        FROM 
-          message 
-          LEFT JOIN handle ON message.handle_id = handle.ROWID
-        WHERE 
-          message.date > (strftime('%s', 'now', '-2 hours') - strftime('%s', '2001-01-01')) * 1000000000
-          AND message.text IS NOT NULL
-        ORDER BY 
-          message.date DESC 
-        LIMIT 20;
-      "
-    `;
-    
-    // Execute the shell script directly
-    const { stdout, stderr } = await execPromise(shellScript);
+    // Execute the SQLite command directly (no AppleScript)
+    const { stdout, stderr } = await execPromise(sqlCommand);
     
     if (stderr) {
-      console.error("Error executing shell script:", stderr);
+      console.error("Error executing SQLite command:", stderr);
       return;
     }
+    
+    console.log("Message data received from database");
     
     if (!stdout.trim()) {
       console.log("No messages found in database");
       return;
     }
     
-    // Process each message line - one per message
+    // Process each message line
     const messageLines = stdout.trim().split('\n');
     console.log(`Found ${messageLines.length} recent messages`);
     
-    let newMessagesFound = false;
-    
     for (const line of messageLines) {
-      const parts = line.split('¶');
-      if (parts.length < 5) {
-        console.log(`Invalid message format: ${line}`);
-        continue;
-      }
-      
-      const messageId = parts[0].trim();
-      const dateStr = parts[1].trim();
-      const sender = parts[2].trim();
-      const content = parts[3].trim();
-      const isFromMe = parts[4].trim() === '1';
-      
-      // Skip if we've already processed this message
-      if (processedMessageIds.has(messageId)) {
-        continue;
-      }
-      
-      console.log(`Processing message ${messageId} from ${sender}: ${content.substring(0, 30)}${content.length > 30 ? '...' : ''}`);
-      
-      // For incoming messages
-      if (!isFromMe) {
+      // Format is date_str|sender|message_text
+      const parts = line.split('|');
+      if (parts.length >= 3) {
+        const dateStr = parts[0].trim();
+        const sender = parts[1].trim();
+        // Join the rest in case message contains pipes
+        const content = parts.slice(2).join('|').trim();
+        const msgDate = new Date(dateStr);
+        
+        // Skip if it's an old message
+        if (msgDate <= lastProcessedTime) {
+          console.log(`Message from ${sender} at ${dateStr} already processed`);
+          continue;
+        }
+        
+        // Skip messages from ourself
+        if (sender === phoneNumber || sender === `+1${phoneNumber}`) {
+          console.log(`Skipping message from ourselves (${sender})`);
+          continue;
+        }
+        
+        console.log(`New message from ${sender}: ${content}`);
+        
+        // Forward to the server
         try {
-          // Only process messages sent to this agent
-          if (sender.includes(phoneNumber) || sender.replace(/\D/g, '').endsWith(phoneNumber)) {
-            console.log(`Skipping message from our own number`);
-            processedMessageIds.add(messageId);
-            continue;
-          }
-          
-          console.log(`Processing incoming message from ${sender}`);
-          
-          const msgDate = new Date(dateStr);
-          
-          // Send to API
-          const response = await axios.post(`${API_SERVER}/api/receive-message`, {
+          await axios.post(`${API_SERVER}/api/receive-message`, {
             from: sender,
             message: content,
             timestamp: msgDate.toISOString(),
@@ -268,26 +235,17 @@ async function checkForNewMessages() {
             agentPhone: phoneNumber
           });
           
-          console.log(`Incoming message saved to conversation ${response.data.conversationId}`);
-          newMessagesFound = true;
+          console.log(`Message from ${sender} saved to conversation`);
+          
+          // Update last processed time
+          if (msgDate > lastProcessedTime) {
+            lastProcessedTime = msgDate;
+          }
         } catch (error) {
-          console.error(`Error saving incoming message:`, error.message);
+          console.error("Error saving message to conversation:", error.message);
         }
       }
-      
-      // Mark as processed
-      processedMessageIds.add(messageId);
     }
-    
-    // Save processed IDs
-    await saveProcessedIds();
-    
-    if (newMessagesFound) {
-      console.log("New messages processed successfully");
-    } else {
-      console.log("No new unprocessed messages found");
-    }
-    
   } catch (error) {
     console.error("Error checking for messages:", error);
   }
@@ -300,14 +258,50 @@ app.listen(PORT, () => {
   // Start the message checking loop
   console.log('Starting message listener...');
   
-  // Load initial processed IDs
-  loadProcessedIds().then(() => {
-    // Initial check
-    setTimeout(() => {
-      checkForNewMessages();
-      
-      // Set up periodic checking
-      setInterval(checkForNewMessages, 10000); // Check every 10 seconds
-    }, 2000);
-  });
+  // Initial check
+  setTimeout(() => {
+    checkForNewMessages();
+    
+    // Set up periodic checking
+    setInterval(checkForNewMessages, 30000); // Check every 30 seconds
+  }, 2000);
 });
+EOF
+
+# Update each user's agent
+for i in "${!USERS[@]}"; do
+  USER=${USERS[$i]}
+  PORT=${PORTS[$i]}
+  
+  echo "Updating agent for ${USER}..."
+  
+  # Stop the current agent if it's running (but this might not work due to auto-restart)
+  echo "Stopping current agent for ${USER}..."
+  sudo pkill -f "node /Users/${USER}/message-agent.js" || true
+  sleep 2
+  
+  # Backup the existing agent
+  if [ -f /Users/${USER}/message-agent.js ]; then
+    sudo cp /Users/${USER}/message-agent.js /Users/${USER}/message-agent.js.bak.$(date +%s)
+    echo "Created backup at /Users/${USER}/message-agent.js.bak.$(date +%s)"
+  fi
+  
+  # Copy the new agent
+  sudo cp /tmp/agent-update/message-agent.js /Users/${USER}/message-agent.js
+  sudo chown ${USER}:staff /Users/${USER}/message-agent.js
+  sudo chmod 755 /Users/${USER}/message-agent.js
+  
+  echo "Agent updated for ${USER}"
+done
+
+# Clean up
+rm -rf /tmp/agent-update
+
+echo "All agents updated successfully with direct SQLite approach!"
+echo "Now restart the agents with:"
+echo ""
+echo "For debtconnects (user1):"
+echo "sudo -u debtconnects nohup /usr/local/bin/node /Users/debtconnects/message-agent.js 3001 ${API_SERVER} > /Users/debtconnects/Library/Logs/messageagent.log 2>&1 &"
+echo ""
+echo "For georgedc (user2):"
+echo "sudo -u georgedc nohup /usr/local/bin/node /Users/georgedc/message-agent.js 3002 ${API_SERVER} > /Users/georgedc/Library/Logs/messageagent.log 2>&1 &"

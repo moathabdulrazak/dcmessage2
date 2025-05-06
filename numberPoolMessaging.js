@@ -3,19 +3,20 @@ const axios = require('axios');
 const crypto = require('crypto');
 
 // Configuration for your number pool
+// Check your numberPoolMessaging.js file and update the numberPool array
 const numberPool = [
   {
-    id: "user1",
+    id: "user1",  // Make sure this ID matches what your message agent is using
     username: "debtconnects",
     phoneNumber: "2087130507",
     agentUrl: "http://localhost:3001",
     messageCount: 0
   },
   {
-    id: "user2",
+    id: "user2",  // Make sure this ID matches what your message agent is using
     username: "georgedc",
     phoneNumber: "3108710761",
-    agentUrl: "http://localhost:3002",
+    agentUrl: "http://localhost:3003",
     messageCount: 0
   }
 ];
