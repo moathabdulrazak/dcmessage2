@@ -651,7 +651,7 @@ app.get('/', (req, res) => {
         </style>
       </head>
       <body>
-        <h1>Message Agent System</h1>
+        <h1>IMessage Agent</h1>
         <div class="status">
           <p>Server is running on port ${PORT}</p>
           <p>Current time: ${new Date().toLocaleString()}</p>
@@ -666,6 +666,7 @@ app.get('/', (req, res) => {
           <li><code>GET /api/conversations/:conversationId</code> - Get a specific conversation</li>
           <li><code>GET /api/pool/users</code> - Get all users in the pool</li>
         </ul>
+         <h6>made by moath</h6>
       </body>
     </html>
   `);

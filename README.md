@@ -33,3 +33,17 @@ sudo -u georgedc nohup /usr/local/bin/node /Users/georgedc/message-agent.js 3002
 
 # Check logs to verify it's working
 tail -f /Users/debtconnects/Library/Logs/messageagent.log
+
+
+
+# First create the directories (without the comment)
+sudo -u johndc mkdir -p /Users/johndc/Library/LaunchAgents /Users/johndc/Library/Logs
+
+# Copy the script
+sudo cp ./message-agent.js /Users/johndc/
+sudo chown johndc:staff /Users/johndc/message-agent.js
+sudo chmod 755 /Users/johndc/message-agent.js
+
+# Copy the plist file
+sudo cp com.johndc.messageagent.plist /Users/johndc/Library/LaunchAgents/
+sudo chown johndc:staff /Users/johndc/Library/LaunchAgents/com.johndc.messageagent.plist
