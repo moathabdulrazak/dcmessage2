@@ -26,6 +26,7 @@ cat /Users/georgedc/Library/Logs/messageagent.log
 # Stop existing agents
 sudo kill -9 $(sudo lsof -ti:3001)
 sudo kill -9 $(sudo lsof -ti:3002)
+sudo kill -9 $(sudo lsof -ti:3003)
 
 # Start agents with the new code
 sudo -u debtconnects nohup /usr/local/bin/node /Users/debtconnects/message-agent.js 3001 http://localhost:3000 > /Users/debtconnects/Library/Logs/messageagent.log 2>&1 &
@@ -47,3 +48,13 @@ sudo chmod 755 /Users/johndc/message-agent.js
 # Copy the plist file
 sudo cp com.johndc.messageagent.plist /Users/johndc/Library/LaunchAgents/
 sudo chown johndc:staff /Users/johndc/Library/LaunchAgents/com.johndc.messageagent.plist
+
+
+
+ngrok http --url=cheaply-wealthy-monkey.ngrok-free.app 3000
+
+<!-- to setup phone mapping -->
+
+curl -X POST http://localhost:3000/api/page-phone-mapping \
+-H "Content-Type: application/json" \
+-d '{"pageId": "591545190708497", "agentPhoneNumber": "2087614687"}'
